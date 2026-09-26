@@ -10,8 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <!--
   ================= SETUP =================
-  1. WEBHOOK_URL: paste your Google Apps Script Web App URL or Zapier Catch Hook URL (script section below).
-     Stages sent: lead_captured, exam_started, test_completed.
+  1. NOTIFY_EMAIL receives each registration and each exam result.
+     The first real submission emails an activation link to that inbox. Confirm it once.
+     WEBHOOK_URL is optional (Google Apps Script or Zapier). Leave blank to use email only.
   2. VIDEOS: paste 2 YouTube video IDs (the part after v= in the link).
   3. GTM dataLayer events: dmat_lead, dmat_exam_start, dmat_complete.
   ==========================================
@@ -904,7 +905,8 @@ body.locked .wa-float{display:none}
 
 <script>
 /* ============ CONFIG ============ */
-const WEBHOOK_URL = ""; // Google Apps Script Web App URL or Zapier Catch Hook
+const NOTIFY_EMAIL = "adsmagnify@gmail.com";
+const WEBHOOK_URL = ""; // optional Google Apps Script Web App URL or Zapier Catch Hook
 const WHATSAPP = "917700090236";
 const FEE_ONE = 25000, FEE_EMI = 30000, DISCOUNT_PCT = 10;
 const PASS_MARK = 6, MAX_ATTEMPTS = 2; // 1 test + 1 retest
@@ -937,9 +939,43 @@ function load(){ try{ return JSON.parse(localStorage.getItem(KEY)); }catch(e){ r
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
 function track(ev, d){ window.dataLayer = window.dataLayer || []; window.dataLayer.push(Object.assign({event:ev}, d||{})); }
 function send(p){
-  if(!WEBHOOK_URL) return;
-  try{ fetch(WEBHOOK_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify(Object.assign({page:location.href, ts:new Date().toISOString()}, p))}).catch(()=>{}); }catch(e){}
+  const payload = Object.assign({page:location.href, ts:new Date().toISOString()}, p);
+  if(WEBHOOK_URL){
+    try{ fetch(WEBHOOK_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify(payload)}).catch(()=>{}); }catch(e){}
+  }
+  emailNotify(payload);
+}
+function emailNotify(p){
+  if(p.stage!=="lead_captured" && p.stage!=="test_passed" && p.stage!=="test_failed") return;
+  const utm = p.utm && typeof p.utm==="object" ? Object.keys(p.utm).map(function(k){ return k+"="+p.utm[k]; }).join(", ") : "";
+  let subject = "New DMAT registration - " + (p.name || "Unknown");
+  if(p.stage==="test_passed") subject = "DMAT passed - " + (p.name||"Unknown") + " scored " + p.score + "/10";
+  if(p.stage==="test_failed") subject = "DMAT not passed - " + (p.name||"Unknown") + " scored " + p.score + "/10";
+  const body = {
+    name: p.name || "",
+    email: p.email || "",
+    mobile: p.mobile || "",
+    qualification: p.qualification || "",
+    stage: p.stage,
+    _subject: subject,
+    _template: "table",
+    _captcha: "false",
+    _replyto: p.email || ""
+  };
+  if(p.score!==undefined) body.score = p.score + "/10";
+  if(p.attempt) body.attempt = String(p.attempt);
+  if(p.scholarship) body.scholarship = p.scholarship;
+  if(p.code) body.scholarship_code = p.code;
+  if(utm) body.utm = utm;
+  if(p.page) body.page = p.page;
+  try{
+    fetch("https://formsubmit.co/ajax/" + encodeURIComponent(NOTIFY_EMAIL), {
+      method: "POST",
+      headers: {"Content-Type":"application/json","Accept":"application/json"},
+      body: JSON.stringify(body)
+    }).catch(function(){});
+  }catch(e){}
 }
 function utm(){ const p=new URLSearchParams(location.search),o={};
   ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid","gclid"].forEach(k=>{ if(p.get(k)) o[k]=p.get(k); }); return o; }
